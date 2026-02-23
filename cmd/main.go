@@ -4,6 +4,7 @@ import (
 	"context"
 	"credit-risk-mvp/internal/config"
 	"credit-risk-mvp/internal/handlers"
+	"credit-risk-mvp/internal/repository"
 	"credit-risk-mvp/services"
 	"credit-risk-mvp/storage"
 
@@ -23,14 +24,19 @@ func main() {
 
 	cfg := config.LoadConfig()
 	db := storage.OpenDB(cfg)
+
+	realRepo := repository.NewSqlRepository(db)
+	kafkaProv := services.KafkaProducer{}
+
 	defer func() {
 		_ = db.Close()
 	}()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/applications", handlers.MakeApplicationsHandler(cfg, db))
-	mux.HandleFunc("/applications/", handlers.MakeGetApplicationHandler(db))
+	appHandler := handlers.NewApplicationsHandler(cfg, realRepo, kafkaProv)
 
+	mux := http.NewServeMux()
+	mux.Handle("/applications", appHandler)
+	mux.HandleFunc("/applications/", handlers.MakeGetApplicationHandler(realRepo))
 	mux.HandleFunc("/mock/bankruptcy", handlers.HandleMockBankruptcy)
 	mux.HandleFunc("/mock/terrorist/list", handlers.HandleMockTerroristList)
 	mux.HandleFunc("/mock/credit-history", handlers.HandleMockCreditHistory)

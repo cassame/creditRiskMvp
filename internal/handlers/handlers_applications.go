@@ -1,13 +1,11 @@
 package handlers
 
 import (
-	"context"
 	"credit-risk-mvp/internal"
 	"credit-risk-mvp/internal/config"
+	"credit-risk-mvp/internal/domain"
 	"credit-risk-mvp/notifier"
 	"credit-risk-mvp/services"
-	"credit-risk-mvp/storage"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,14 +15,22 @@ import (
 
 var notify notifier.Notifier = notifier.LogNotifier{}
 
-func MakeApplicationsHandler(cfg config.Config, db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		handleApplications(w, r, cfg, db, ctx)
+type ApplicationHandler struct {
+	Repo  domain.Repository
+	Cfg   config.Config
+	Queue services.MessageQueue
+}
+
+func NewApplicationsHandler(cfg config.Config, repo domain.Repository, queue services.MessageQueue) *ApplicationHandler {
+	return &ApplicationHandler{
+		Repo:  repo,
+		Cfg:   cfg,
+		Queue: queue,
 	}
 }
 
-func handleApplications(w http.ResponseWriter, r *http.Request, cfg config.Config, db *sql.DB, ctx context.Context) {
+func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -32,49 +38,50 @@ func handleApplications(w http.ResponseWriter, r *http.Request, cfg config.Confi
 	defer func() {
 		_ = r.Body.Close()
 	}()
-
 	var payload map[string]any
-
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-
 	app, err := internal.ParseApplication(payload)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
 	strategy := internal.ChooseStrategy(app)
-	checks, err := internal.RunStrategy(ctx, cfg, app, strategy)
+	app.StrategyName = strategy.Name
+	app.Checks, err = internal.RunStrategy(ctx, h.Cfg, app, strategy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to run strategy")
 		return
 	}
-	status := internal.DecideStatus(checks)
-	appID := uuid.NewString()
-	if err := storage.SaveApplication(db, appID, strategy.Name, status, app.Payload, checks); err != nil {
+	app.Status = internal.DecideStatus(app.Checks)
+	app.ID = uuid.NewString()
+
+	if err := h.Repo.SaveApplication(ctx, app); err != nil {
 		writeError(w, http.StatusInternalServerError, "cannot save application")
 		return
 	}
-	message := fmt.Sprintf("New application: %s with status: %s", appID, status)
-	err = services.SendMessage("application_topic", []byte(message))
+
+	message := fmt.Sprintf("New application: %s with status: %s", app.ID, app.Status)
+	err = h.Queue.SendMessage("application_topic", []byte(message))
+
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send message to Kafka")
 		return
 	}
-	err = notify.Notify(app, status)
+	err = notify.Notify(app, app.Status)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to notify application")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"application_id": appID,
-		"status":         status,
+		"application_id": app.ID,
+		"status":         app.Status,
 		"strategy":       strategy.Name,
-		"checks":         checks,
+		"checks":         app.Checks,
 	})
+
 }
 
 // writeError sending an error in format 400 {"error": "..." }

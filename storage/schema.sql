@@ -35,8 +35,8 @@ create table if not exists check_results (
     created_at timestamptz not null default now(),
     check_name text not null CHECK (
         check_name IN ('age>=18', 'valid_phone', 'valid_passport',
-                      'has_patronymic', 'approve_amount', 'credit_history',
-                      'terrorist', 'bankruptcy')
+        'has_patronymic', 'approve_amount', 'credit_history',
+        'terrorist', 'bankruptcy')
     ),
     status text not null REFERENCES check_statuses(code),
     reason text not null default ''
@@ -44,6 +44,7 @@ create table if not exists check_results (
 
 CREATE INDEX idx_check_results_application_id
     ON check_results(application_id);
-
-CREATE INDEX idx_applications_status
+CREATE INDEX  idx_applications_status
     ON applications(status);
+
+

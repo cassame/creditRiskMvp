@@ -3,13 +3,14 @@ package internal
 import (
 	"context"
 	"credit-risk-mvp/internal/config"
+	"credit-risk-mvp/internal/domain"
 
 	"golang.org/x/sync/errgroup"
 )
 
-func RunStrategy(ctx context.Context, cfg config.Config, app Application, s Strategy) ([]CheckResult, error) {
+func RunStrategy(ctx context.Context, cfg config.Config, app domain.Application, s domain.Strategy) ([]domain.CheckResult, error) {
 	g, ctx := errgroup.WithContext(ctx)
-	checks := make([]CheckResult, len(s.Checks))
+	checks := make([]domain.CheckResult, len(s.Checks))
 	for i, fn := range s.Checks {
 		i, fn := i, fn
 		g.Go(func() error {
@@ -22,7 +23,7 @@ func RunStrategy(ctx context.Context, cfg config.Config, app Application, s Stra
 	}
 	return checks, nil
 }
-func DecideStatus(checks []CheckResult) string {
+func DecideStatus(checks []domain.CheckResult) string {
 	hasCriticalError := false
 
 	for _, c := range checks {
@@ -39,11 +40,11 @@ func DecideStatus(checks []CheckResult) string {
 	return "approved"
 }
 
-func ChooseStrategy(app Application) Strategy {
+func ChooseStrategy(app domain.Application) domain.Strategy {
 	if app.Residency == "resident" && app.FirstTime {
-		return Strategy{
+		return domain.Strategy{
 			Name: "resident_first_time",
-			Checks: []CheckFunc{
+			Checks: []domain.CheckFunc{
 				checkAge,
 				checkPhone,
 				checkPassport,
@@ -55,9 +56,9 @@ func ChooseStrategy(app Application) Strategy {
 		}
 	}
 	if app.Residency == "resident" && !app.FirstTime {
-		return Strategy{
+		return domain.Strategy{
 			Name: "resident_repeat",
-			Checks: []CheckFunc{
+			Checks: []domain.CheckFunc{
 				checkAge,
 				checkPhone,
 				checkPassport,
@@ -66,9 +67,9 @@ func ChooseStrategy(app Application) Strategy {
 		}
 	}
 	if app.Residency == "nonresident" && app.FirstTime {
-		return Strategy{
+		return domain.Strategy{
 			Name: "nonresident_first_time",
-			Checks: []CheckFunc{
+			Checks: []domain.CheckFunc{
 				checkAge,
 				checkPhone,
 				checkPassport,
@@ -78,9 +79,9 @@ func ChooseStrategy(app Application) Strategy {
 			},
 		}
 	}
-	return Strategy{
+	return domain.Strategy{
 		Name: "nonresident_repeat",
-		Checks: []CheckFunc{
+		Checks: []domain.CheckFunc{
 			checkAge,
 			checkPhone,
 			checkAmountLimit,

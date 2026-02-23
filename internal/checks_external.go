@@ -3,18 +3,19 @@ package internal
 import (
 	"context"
 	"credit-risk-mvp/internal/config"
+	"credit-risk-mvp/internal/domain"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
 )
 
 var tcache terroristCache
-var tmu sync.Mutex
+
+// var tmu sync.Mutex
 var sf singleflight.Group
 
 type terroristCache struct {
@@ -22,19 +23,19 @@ type terroristCache struct {
 	set         map[string]struct{}
 }
 
-func checkCreditHistoryCF(ctx context.Context, cfg config.Config, app Application) CheckResult {
-	return checkCreditHistory(ctx, cfg, app.Passport)
+func checkCreditHistoryCF(ctx context.Context, cfg config.Config, app domain.Application) domain.CheckResult {
+	return checkCreditHistory(ctx, cfg, string(app.Passport))
 }
 
 // checkCreditHistory checking for credit history score (passed/failed/error)
-func checkCreditHistory(ctx context.Context, cfg config.Config, passport string) CheckResult {
+func checkCreditHistory(ctx context.Context, cfg config.Config, passport string) domain.CheckResult {
 
 	client := &http.Client{Timeout: cfg.HTTPtimeout}
 	u := cfg.CreditHistoryURL + "?passport=" + url.QueryEscape(passport)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
-		return CheckResult{
+		return domain.CheckResult{
 			Check:  "credit_history",
 			Status: "error",
 			Reason: "failed to create request: " + err.Error(),
@@ -42,7 +43,7 @@ func checkCreditHistory(ctx context.Context, cfg config.Config, passport string)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return CheckResult{
+		return domain.CheckResult{
 			Check:  "credit_history",
 			Status: "error",
 			Reason: "external service unavailable: " + err.Error(),
@@ -52,7 +53,7 @@ func checkCreditHistory(ctx context.Context, cfg config.Config, passport string)
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {
-		return CheckResult{
+		return domain.CheckResult{
 			Check:  "credit_history",
 			Status: "error",
 			Reason: "external service bad status: " + resp.Status,
@@ -63,36 +64,36 @@ func checkCreditHistory(ctx context.Context, cfg config.Config, passport string)
 		Score  int  `json:"score"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return CheckResult{
+		return domain.CheckResult{
 			Check:  "credit_history",
 			Status: "error",
 			Reason: "external service bad json: " + err.Error(),
 		}
 	}
 	if !data.IsGood {
-		return CheckResult{
+		return domain.CheckResult{
 			Check:  "credit_history",
 			Status: "failed",
 			Reason: "bad credit history",
 		}
 	}
-	return CheckResult{
+	return domain.CheckResult{
 		Check:  "credit_history",
 		Status: "passed",
 	}
 }
 
 // checkTerroristCF adapter to return CheckResult from checkTerrorist
-func checkTerroristCF(ctx context.Context, cfg config.Config, app Application) CheckResult {
-	return checkTerrorist(ctx, cfg, app.Passport)
+func checkTerroristCF(ctx context.Context, cfg config.Config, app domain.Application) domain.CheckResult {
+	return checkTerrorist(ctx, cfg, string(app.Passport))
 }
 
 // checkTerrorist checking for terrorist (passed/failed/error)
-func checkTerrorist(ctx context.Context, cfg config.Config, passport string) CheckResult {
+func checkTerrorist(ctx context.Context, cfg config.Config, passport string) domain.CheckResult {
 	needRefresh := tcache.set == nil || time.Since(tcache.lastUpdated) > time.Hour*24
 	if needRefresh {
 		if err := refreshTerroristCache(ctx, cfg); err != nil {
-			return CheckResult{
+			return domain.CheckResult{
 				Check:  "terrorist",
 				Status: "error",
 				Reason: "cannot refresh terrorist list: " + err.Error(),
@@ -101,13 +102,13 @@ func checkTerrorist(ctx context.Context, cfg config.Config, passport string) Che
 	}
 	_, found := tcache.set[passport]
 	if found {
-		return CheckResult{
+		return domain.CheckResult{
 			Check:  "terrorist",
 			Status: "failed",
 			Reason: "client is in terrorist/extremist list",
 		}
 	}
-	return CheckResult{Check: "terrorist", Status: "passed"}
+	return domain.CheckResult{Check: "terrorist", Status: "passed"}
 }
 
 func actualRefresh(ctx context.Context, cfg config.Config) error {
@@ -151,13 +152,16 @@ func refreshTerroristCache(ctx context.Context, cfg config.Config) error {
 	return err
 }
 
-func checkBankruptcy(ctx context.Context, cfg config.Config, passport string) CheckResult {
+func checkBankruptcy(ctx context.Context, cfg config.Config, passport string) domain.CheckResult {
 	client := &http.Client{Timeout: 1 * cfg.HTTPtimeout}
 
-	u := url.URL{
-		Scheme: "http",
-		Host:   "localhost:8080",
-		Path:   "/mock/bankruptcy",
+	u, err := url.Parse(cfg.BankruptcyURL)
+	if err != nil {
+		return domain.CheckResult{
+			Check:  "bankruptcy",
+			Status: "error",
+			Reason: "invalid URL in config",
+		}
 	}
 	q := u.Query()
 	q.Set("passport", passport)
@@ -165,27 +169,27 @@ func checkBankruptcy(ctx context.Context, cfg config.Config, passport string) Ch
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
-		return CheckResult{Check: "bankruptcy", Status: "error", Reason: "failed to create request"}
+		return domain.CheckResult{Check: "bankruptcy", Status: "error", Reason: "failed to create request"}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return CheckResult{Check: "bankruptcy", Status: "error", Reason: "..."}
+		return domain.CheckResult{Check: "bankruptcy", Status: "error", Reason: "..."}
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return CheckResult{Check: "bankruptcy", Status: "error", Reason: "bad status"}
+		return domain.CheckResult{Check: "bankruptcy", Status: "error", Reason: "bad status"}
 	}
 	var data struct {
 		IsBankrupt bool `json:"is_bankrupt"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return CheckResult{Check: "bankruptcy", Status: "error", Reason: "bad json"}
+		return domain.CheckResult{Check: "bankruptcy", Status: "error", Reason: "bad json"}
 	}
 	if data.IsBankrupt {
-		return CheckResult{Check: "bankruptcy", Status: "failed", Reason: "client is bankrupt"}
+		return domain.CheckResult{Check: "bankruptcy", Status: "failed", Reason: "client is bankrupt"}
 	}
-	return CheckResult{Check: "bankruptcy", Status: "passed"}
+	return domain.CheckResult{Check: "bankruptcy", Status: "passed"}
 }
