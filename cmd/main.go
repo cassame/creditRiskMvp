@@ -5,8 +5,11 @@ import (
 	"credit-risk-mvp/internal/config"
 	"credit-risk-mvp/internal/handlers"
 	"credit-risk-mvp/internal/repository"
+	"credit-risk-mvp/notifier"
 	"credit-risk-mvp/services"
 	"credit-risk-mvp/storage"
+
+	"github.com/pressly/goose/v3"
 
 	"errors"
 	"log"
@@ -18,21 +21,22 @@ import (
 
 func main() {
 
-	services.InitProducer()
-
-	go services.StartConsumer("application_topic")
-
 	cfg := config.LoadConfig()
 	db := storage.OpenDB(cfg)
+	defer db.Close()
 
+	log.Println("Starting migrations...")
+	if err := goose.Up(db, "migrations"); err != nil {
+		log.Fatalf("Migration failed: %v", err)
+	}
+	log.Println("Migrations finished successfully!")
 	realRepo := repository.NewSqlRepository(db)
 	kafkaProv := services.KafkaProducer{}
+	services.InitProducer(cfg.KafkaBrokers)
+	go services.StartConsumer("application_topic")
 
-	defer func() {
-		_ = db.Close()
-	}()
-
-	appHandler := handlers.NewApplicationsHandler(cfg, realRepo, kafkaProv)
+	notifier := notifier.LogNotifier{}
+	appHandler := handlers.NewApplicationsHandler(cfg, realRepo, kafkaProv, notifier)
 
 	mux := http.NewServeMux()
 	mux.Handle("/applications", appHandler)

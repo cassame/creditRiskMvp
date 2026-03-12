@@ -27,10 +27,9 @@ func (m *mockRepo) SaveApplication(ctx context.Context, app domain.Application) 
 	return nil
 }
 
-// Мок очереди
 type mockQueue struct{}
 
-func (m mockQueue) SendMessage(topic string, msg []byte) error { return nil }
+func (m mockQueue) SendMessage(topic string, key string, msg []byte) error { return nil }
 
 func TestApplicationHandler_Success(t *testing.T) {
 	mockRepo := new(storage.MockRepository)
@@ -40,10 +39,6 @@ func TestApplicationHandler_Success(t *testing.T) {
 	mockRepo.On("SaveApplication", mock.Anything, mock.AnythingOfType("domain.Application")).Return(nil)
 	mockNotify.On("Notify", mock.Anything, mock.Anything).Return(nil)
 	mockQueue.On("SendMessage", mock.Anything, mock.Anything).Return(nil)
-
-	oldNotify := notify
-	notify = mockNotify
-	defer func() { notify = oldNotify }()
 
 	cfg := config.Config{HTTPtimeout: 2 * time.Second}
 	handler := &ApplicationHandler{

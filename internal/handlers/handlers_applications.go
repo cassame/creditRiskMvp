@@ -13,19 +13,19 @@ import (
 	"github.com/google/uuid"
 )
 
-var notify notifier.Notifier = notifier.LogNotifier{}
-
 type ApplicationHandler struct {
-	Repo  domain.Repository
-	Cfg   config.Config
-	Queue services.MessageQueue
+	Repo     domain.Repository
+	Cfg      config.Config
+	Queue    services.MessageQueue
+	Notifier notifier.Notifier
 }
 
-func NewApplicationsHandler(cfg config.Config, repo domain.Repository, queue services.MessageQueue) *ApplicationHandler {
+func NewApplicationsHandler(cfg config.Config, repo domain.Repository, queue services.MessageQueue, n notifier.Notifier) *ApplicationHandler {
 	return &ApplicationHandler{
-		Repo:  repo,
-		Cfg:   cfg,
-		Queue: queue,
+		Repo:     repo,
+		Cfg:      cfg,
+		Queue:    queue,
+		Notifier: n,
 	}
 }
 
@@ -64,13 +64,13 @@ func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	message := fmt.Sprintf("New application: %s with status: %s", app.ID, app.Status)
-	err = h.Queue.SendMessage("application_topic", []byte(message))
+	err = h.Queue.SendMessage("application_topic", app.ID, []byte(message))
 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send message to Kafka")
 		return
 	}
-	err = notify.Notify(app, app.Status)
+	err = h.Notifier.Notify(app, app.Status)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to notify application")
 	}
@@ -84,12 +84,10 @@ func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// writeError sending an error in format 400 {"error": "..." }
 func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
-// writeJSON sending to user the http response CODE
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
