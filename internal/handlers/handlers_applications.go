@@ -4,6 +4,7 @@ import (
 	"credit-risk-mvp/internal"
 	"credit-risk-mvp/internal/config"
 	"credit-risk-mvp/internal/domain"
+	"credit-risk-mvp/internal/logger"
 	"credit-risk-mvp/notifier"
 	"credit-risk-mvp/services"
 	"encoding/json"
@@ -30,6 +31,10 @@ func NewApplicationsHandler(cfg config.Config, repo domain.Repository, queue ser
 }
 
 func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	logger.Lg.Info("incoming request",
+		"method", r.Method, "path", r.URL.Path,
+	)
+
 	ctx := r.Context()
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -40,26 +45,27 @@ func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 	var payload map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
+		h.logAndWriteError(w, "invalid json", http.StatusBadRequest, err)
 		return
 	}
 	app, err := internal.ParseApplication(payload)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		h.logAndWriteError(w, "validation failed", http.StatusBadRequest, err)
 		return
 	}
 	strategy := internal.ChooseStrategy(app)
 	app.StrategyName = strategy.Name
 	app.Checks, err = internal.RunStrategy(ctx, h.Cfg, app, strategy)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to run strategy")
+		h.logAndWriteError(w, "failed to run strategy", http.StatusInternalServerError, err)
 		return
 	}
 	app.Status = internal.DecideStatus(app.Checks)
 	app.ID = uuid.NewString()
 
 	if err := h.Repo.SaveApplication(ctx, app); err != nil {
-		writeError(w, http.StatusInternalServerError, "cannot save application")
+		h.logAndWriteError(w, "failed to save application",
+			http.StatusInternalServerError, err, "app_id", app.ID)
 		return
 	}
 
@@ -67,13 +73,20 @@ func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err = h.Queue.SendMessage("application_topic", app.ID, []byte(message))
 
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to send message to Kafka")
+		h.logAndWriteError(w, "failed to send message to Kafka", http.StatusInternalServerError,
+			err, "app_id", app.ID)
 		return
 	}
 	err = h.Notifier.Notify(app, app.Status)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to notify application")
+		h.logAndWriteError(w, "failed to notify application", http.StatusInternalServerError,
+			err, "app_id", app.ID)
 	}
+
+	logger.Lg.Info("application processed successfully",
+		"app_id", app.ID,
+		"status", app.Status,
+	)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"application_id": app.ID,
@@ -82,6 +95,18 @@ func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"checks":         app.Checks,
 	})
 
+}
+
+func (h *ApplicationHandler) logAndWriteError(w http.ResponseWriter, msg string, code int, err error, args ...any) {
+	fullArgs := append([]any{"error", err}, args...)
+
+	if code >= 500 {
+		logger.Lg.Error(msg, fullArgs...)
+	} else {
+		logger.Lg.Warn(msg, fullArgs...)
+	}
+
+	writeError(w, code, msg)
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

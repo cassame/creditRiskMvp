@@ -4,6 +4,7 @@ import (
 	"context"
 	"credit-risk-mvp/internal/config"
 	"credit-risk-mvp/internal/handlers"
+	"credit-risk-mvp/internal/logger"
 	"credit-risk-mvp/internal/repository"
 	"credit-risk-mvp/notifier"
 	"credit-risk-mvp/services"
@@ -12,7 +13,6 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,18 +22,23 @@ import (
 func main() {
 
 	cfg := config.LoadConfig()
+	logger.InitLogger("local")
+	logger.Lg.Info("Starting application", "port", "8080", "env", "local")
 	db := storage.OpenDB(cfg)
 	defer db.Close()
 
-	log.Println("Starting migrations...")
+	logger.Lg.Info("Starting migrations")
 	if err := goose.Up(db, "migrations"); err != nil {
-		log.Fatalf("Migration failed: %v", err)
+		logger.Lg.Error("Migration failed", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Migrations finished successfully!")
+	logger.Lg.Info("Migrations finished successfully")
+
 	realRepo := repository.NewSqlRepository(db)
 	kafkaProv := services.KafkaProducer{}
 	services.InitProducer(cfg.KafkaBrokers)
-	go services.StartConsumer("application_topic")
+	logger.Lg.Info("Starting Kafka consumer", "topic", "application_topic")
+	go services.StartConsumer(cfg.KafkaBrokers, "application_topic")
 
 	notifier := notifier.LogNotifier{}
 	appHandler := handlers.NewApplicationsHandler(cfg, realRepo, kafkaProv, notifier)
@@ -47,19 +52,21 @@ func main() {
 	srv := &http.Server{Addr: ":8080", Handler: mux}
 
 	go func() {
-		log.Println("Starting server on :8080")
+		logger.Lg.Info("Server is listening", "addr", ":8080")
 		if err := srv.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("could not listen on %s: %v", ":8080", err)
+			logger.Lg.Error("Server crash", "error", err)
+			os.Exit(1)
 		}
 	}()
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
+	logger.Lg.Info("Shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("could not gracefully shutdown the server: %v", err)
+		logger.Lg.Error("Graceful shutdown failed", "error", err)
 	}
-	log.Println("Server gracefully stopped")
+	logger.Lg.Info("Server gracefully stopped")
 }

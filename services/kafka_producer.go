@@ -1,7 +1,8 @@
 package services
 
 import (
-	"log"
+	"credit-risk-mvp/internal/logger"
+	"os"
 
 	"github.com/IBM/sarama"
 )
@@ -14,7 +15,8 @@ func InitProducer(brokers []string) {
 	config.Producer.Return.Successes = true
 	producer, err = sarama.NewSyncProducer(brokers, config)
 	if err != nil {
-		log.Fatalf("error creating producer Kafka: %v", err)
+		logger.Lg.Error("error creating producer Kafka", "error", err)
+		os.Exit(1)
 	}
 }
 
