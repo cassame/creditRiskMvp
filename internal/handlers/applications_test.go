@@ -2,10 +2,10 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"credit-risk-mvp/internal/config"
 	"credit-risk-mvp/internal/domain"
 	"credit-risk-mvp/internal/logger"
+	"credit-risk-mvp/internal/repository"
 	"credit-risk-mvp/notifier"
 	"credit-risk-mvp/services"
 	"credit-risk-mvp/storage"
@@ -26,19 +26,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-type mockRepo struct {
-	savedApp domain.Application
-}
-
-func (m *mockRepo) SaveApplication(ctx context.Context, app domain.Application) error {
-	m.savedApp = app
-	return nil
-}
-
-type mockQueue struct{}
-
-func (m mockQueue) SendMessage(topic string, key string, msg []byte) error { return nil }
-
 func TestApplicationHandler_Success(t *testing.T) {
 	mockRepo := new(storage.MockRepository)
 	mockQueue := new(services.MockQueue)
@@ -50,10 +37,11 @@ func TestApplicationHandler_Success(t *testing.T) {
 
 	cfg := config.Config{HTTPtimeout: 2 * time.Second}
 	handler := &ApplicationHandler{
-		Repo:     mockRepo,
-		Cfg:      cfg,
-		Queue:    mockQueue,
-		Notifier: mockNotify,
+		Repo:           mockRepo,
+		Cfg:            cfg,
+		Queue:          mockQueue,
+		Notifier:       mockNotify,
+		TerroristStore: repository.NewLocalTerroristStore(),
 	}
 
 	payload := map[string]any{

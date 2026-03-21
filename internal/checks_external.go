@@ -13,15 +13,8 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-var tcache terroristCache
-
-// var tmu sync.Mutex
 var sf singleflight.Group
-
-type terroristCache struct {
-	lastUpdated time.Time
-	set         map[string]struct{}
-}
+var lastTerroristCacheUpdate time.Time
 
 func checkCreditHistoryCF(ctx context.Context, cfg config.Config, app domain.Application) domain.CheckResult {
 	return checkCreditHistory(ctx, cfg, string(app.Passport))
@@ -83,16 +76,19 @@ func checkCreditHistory(ctx context.Context, cfg config.Config, passport string)
 	}
 }
 
-// checkTerroristCF adapter to return CheckResult from checkTerrorist
-func checkTerroristCF(ctx context.Context, cfg config.Config, app domain.Application) domain.CheckResult {
-	return checkTerrorist(ctx, cfg, string(app.Passport))
+// NewTerroristChecker adapter to return CheckResult from checkTerrorist
+func NewTerroristChecker(store domain.TerroristStore) func(context.Context, config.Config, domain.Application) domain.CheckResult {
+	return func(ctx context.Context, cfg config.Config, app domain.Application) domain.CheckResult {
+		return checkTerrorist(ctx, cfg, store, string(app.Passport))
+	}
 }
 
 // checkTerrorist checking for terrorist (passed/failed/error)
-func checkTerrorist(ctx context.Context, cfg config.Config, passport string) domain.CheckResult {
-	needRefresh := tcache.set == nil || time.Since(tcache.lastUpdated) > time.Hour*24
+func checkTerrorist(ctx context.Context, cfg config.Config, store domain.TerroristStore, passport string) domain.CheckResult {
+	needRefresh := lastTerroristCacheUpdate.IsZero() || time.Since(lastTerroristCacheUpdate) > time.Hour*24
+
 	if needRefresh {
-		if err := refreshTerroristCache(ctx, cfg); err != nil {
+		if err := refreshTerroristCache(ctx, cfg, store); err != nil {
 			return domain.CheckResult{
 				Check:  "terrorist",
 				Status: "error",
@@ -100,7 +96,10 @@ func checkTerrorist(ctx context.Context, cfg config.Config, passport string) dom
 			}
 		}
 	}
-	_, found := tcache.set[passport]
+	found, err := store.IsTerrorist(ctx, passport)
+	if err != nil {
+		return domain.CheckResult{Check: "terrorist", Status: "error", Reason: err.Error()}
+	}
 	if found {
 		return domain.CheckResult{
 			Check:  "terrorist",
@@ -111,7 +110,7 @@ func checkTerrorist(ctx context.Context, cfg config.Config, passport string) dom
 	return domain.CheckResult{Check: "terrorist", Status: "passed"}
 }
 
-func actualRefresh(ctx context.Context, cfg config.Config) error {
+func actualRefresh(ctx context.Context, cfg config.Config, store domain.TerroristStore) error {
 	client := &http.Client{Timeout: cfg.HTTPtimeout}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", cfg.TerroristURL, nil)
@@ -134,20 +133,19 @@ func actualRefresh(ctx context.Context, cfg config.Config) error {
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return err
 	}
-	newSet := make(map[string]struct{})
-	for _, passport := range data.Passports {
-		newSet[passport] = struct{}{}
-	}
-	tcache.set = newSet
-	tcache.lastUpdated = time.Now()
-	return nil
 
+	return store.UpdateList(ctx, data.Passports)
 }
 
 // refreshTerroristCache updating info from TerroristURL and updating time
-func refreshTerroristCache(ctx context.Context, cfg config.Config) error {
+func refreshTerroristCache(ctx context.Context, cfg config.Config, store domain.TerroristStore) error {
 	_, err, _ := sf.Do("refresh", func() (interface{}, error) {
-		return nil, actualRefresh(ctx, cfg)
+		err := actualRefresh(ctx, cfg, store)
+		if err != nil {
+			return nil, err
+		}
+		lastTerroristCacheUpdate = time.Now()
+		return nil, nil
 	})
 	return err
 }

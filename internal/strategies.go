@@ -40,7 +40,9 @@ func DecideStatus(checks []domain.CheckResult) string {
 	return "approved"
 }
 
-func ChooseStrategy(app domain.Application) domain.Strategy {
+func ChooseStrategy(app domain.Application, store domain.TerroristStore) domain.Strategy {
+	terroristCheck := NewTerroristChecker(store)
+
 	if app.Residency == "resident" && app.FirstTime {
 		return domain.Strategy{
 			Name: "resident_first_time",
@@ -50,7 +52,7 @@ func ChooseStrategy(app domain.Application) domain.Strategy {
 				checkPassport,
 				checkPatronymic,
 				checkAmountLimit,
-				checkTerroristCF,
+				terroristCheck,
 				checkCreditHistoryCF,
 			},
 		}
@@ -74,7 +76,7 @@ func ChooseStrategy(app domain.Application) domain.Strategy {
 				checkPhone,
 				checkPassport,
 				checkAmountLimit,
-				checkTerroristCF,
+				terroristCheck,
 				checkCreditHistoryCF,
 			},
 		}

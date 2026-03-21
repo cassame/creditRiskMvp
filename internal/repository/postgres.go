@@ -43,7 +43,7 @@ func (r *SqlRepository) GetByID(ctx context.Context, id string) (domain.Applicat
 	if err != nil {
 		return app, nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var c domain.CheckResult

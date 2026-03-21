@@ -17,6 +17,8 @@ type Config struct {
 	TerroristURL     string
 	HTTPtimeout      time.Duration
 	DatabaseURL      string
+	RedisURL         string
+	UseRedis         bool
 	CreditHistoryURL string
 }
 
@@ -38,6 +40,8 @@ func LoadConfig() Config {
 		TerroristURL:     getenv("TERRORIST_LIST_URL", "http://localhost:8080/mock/terrorist/list"),
 		HTTPtimeout:      time.Duration(timeoutMs) * time.Millisecond,
 		DatabaseURL:      getenv("DATABASE_URL", "host=localhost port=5432 user=user password=pass dbname=credit_risk sslmode=disable"),
+		RedisURL:         getenv("REDIS_URL", "localhost:6379"),
+		UseRedis:         getenv("USE_REDIS", "false") == "true",
 		CreditHistoryURL: getenv("CREDIT_HISTORY_URL", "http://localhost:8080/mock/credit-history"),
 	}
 }

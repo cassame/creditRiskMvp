@@ -20,6 +20,14 @@ func InitProducer(brokers []string) {
 	}
 }
 
+func CloseProducer() {
+	if producer != nil {
+		if err := producer.Close(); err != nil {
+			logger.Lg.Error("Error closing Kafka producer", "error", err)
+		}
+	}
+}
+
 func SendMessage(topic string, key string, message []byte) error {
 	msg := &sarama.ProducerMessage{
 		Topic: topic,

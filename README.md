@@ -1,17 +1,21 @@
-# 🏦 Credit Risk Assessment API
+# 🏦 Credit Risk Assessment MVP
 
-A REST API service for automated credit application processing with risk assessment capabilities. The system evaluates loan applications through configurable validation strategies and makes automated decisions: approve, reject, or route to manual review.
+<div align="center">
 
-### Key Features
+![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![Kafka](https://img.shields.io/badge/Kafka-231F20?style=for-the-badge&logo=apachekafka&logoColor=white)
+![Linter](https://img.shields.io/badge/Linter-Golangci--lint-green?style=for-the-badge)
 
-- ✅ **Multi-strategy validation** - Different rule sets for residents/non-residents and first-time/repeat customers
-- 🔄 **Parallel check execution** - Concurrent validation for improved performance
-- 💾 **Transactional data persistence** - Atomic storage of applications and check results
-- 🚀 **External service integration** - Credit history, terrorist watchlist, and bankruptcy checks
-- 📊 **Event streaming** - Kafka integration for application status notifications
-- 🎯 **Intelligent caching** - In-memory cache with TTL for watchlist data
+**A high-performance scoring engine for automated credit risk evaluation.**  
+Built with a focus on concurrency, resilience, and clean engineering patterns.
 
-## 🏗️ Architecture
+</div>
+
+---
+
+## 🏗️ System Architecture
 
 ```mermaid
 graph TB
@@ -28,127 +32,142 @@ graph TB
     end
     
     subgraph "Validation Checks"
-        Local[Local Validators<br/>• Age 18+<br/>• Phone Format<br/>• Passport<br/>• Patronymic<br/>• Amount Limit]
-        External[External Services<br/>• Credit History API<br/>• Terrorist Watchlist<br/>• Bankruptcy Check]
+        Local[Local Validators<br/>• Age 18+<br/>• Format Validation<br/>• Amount Limits]
+        External[External Services<br/>• Credit History API<br/>• Bankruptcy Check]
+        Watchlist[Watchlist Service<br/>• Terrorist List]
     end
     
-    subgraph "Data Layer"
-        DB[(PostgreSQL<br/>applications<br/>check_results)]
-        Cache[In-Memory Cache<br/>Terrorist List TTL]
+    subgraph "Infrastructure & Persistence"
+        DB[(PostgreSQL<br/>Apps & Results)]
+        Redis[(Redis Cache<br/>O1 Lookup)]
+        Kafka[[Apache Kafka<br/>Status Notifications]]
     end
     
-    subgraph "Event Streaming"
-        Kafka[Apache Kafka<br/>Application Events]
-    end
-    
-    Client -->|HTTP Request| API
+    Client -->|JSON Request| API
     API --> Strategy
     Strategy --> Runner
     Runner --> Local
     Runner --> External
-    External -.->|Cache Hit| Cache
-    Local --> Decision
+    Runner --> Watchlist
+    
+    Watchlist <-->|Fast Lookup| Redis
     External --> Decision
+    Local --> Decision
+    Watchlist --> Decision
+    
     Decision --> DB
     Decision --> Kafka
-    DB -->|Response| API
     API -->|HTTP Response| Client
     
-    style API fill:#e1f5ff
-    style Strategy fill:#fff3e0
-    style Runner fill:#fff3e0
-    style Decision fill:#fff3e0
-    style DB fill:#f3e5f5
-    style Kafka fill:#e8f5e9
-    style Cache fill:#fce4ec
+    style API fill:#e1f5ff,stroke:#01579b
+    style Strategy fill:#fff3e0,stroke:#ef6c00
+    style Runner fill:#fff3e0,stroke:#ef6c00
+    style DB fill:#f3e5f5,stroke:#7b1fa2
+    style Kafka fill:#e8f5e9,stroke:#2e7d32
+    style Redis fill:#ffebee,stroke:#c62828
 ```
+
+---
+
+
+---
 
 ## 🔄 Request Flow
 
-1. **POST /applications** - Client submits loan application
-2. **parseApplication** - JSON validation and data extraction
-3. **chooseStrategy** - Select validation strategy based on customer profile
-4. **runStrategy** - Execute validation checks in parallel
-5. **decideStatus** - Determine final decision (approved/rejected/manual_review)
-6. **saveApplication** - Persist to database within transaction
-7. **notifier.Notify** - Publish event to Kafka
-8. **Response** - Return decision to client
+1. **POST /applications** — Client submits loan application data
+2. **Parse & Validate** — Strict JSON validation and data extraction
+3. **Choose Strategy** — Selection of the validation suite based on customer profile
+4. **Run Strategy** — Execution of multiple checks (Local & External) in parallel
+5. **Decide Status** — Final decision making based on check results
+6. **Save Application** — Transactional persistence to PostgreSQL
+7. **Notify** — Asynchronous event publishing to the Kafka topic
+8. **Response** — Final decision returned to the client with detailed reports
 
-## 🎯 Validation Strategies
+---
 
-| Customer Type | First Time | Checks Applied |
-|--------------|------------|----------------|
-| **Resident** | ✅ Yes | age, phone, passport, patronymic, amount, terrorist, credit_history |
-| **Resident** | ❌ No | age, phone, passport, amount |
-| **Non-Resident** | ✅ Yes | age, phone, passport, amount, terrorist, credit_history |
-| **Non-Resident** | ❌ No | age, phone, amount |
+## 🎯 Validation & Decision Logic
 
-### Decision Logic
+### Decision Matrix
 
-- **Approved** ✅ - All checks passed
-- **Rejected** ❌ - Any check failed
-- **Manual Review** ⚠️ - Critical external service unavailable (terrorist/bankruptcy check)
+| Result | Condition |
+|--------|-----------|
+| **Approved** ✅ | All mandatory validation checks passed |
+| **Rejected** ❌ | At least one mandatory check failed (e.g., age < 18 or bankrupt) |
+| **Manual Review** ⚠️ | Critical external service timeout or unavailability (e.g., Terrorist API down) |
 
+### Strategies by Profile
 
-## 📦 Installation
+| Customer Type | First Time | Primary Checks Applied |
+|---------------|------------|------------------------|
+| **Resident** | ✅ Yes | Age, Phone, Passport, Amount, Terrorist, Credit History |
+| **Resident** | ❌ No | Age, Phone, Passport, Amount |
+| **Non-Resident** | ✅ Yes | Age, Phone, Passport, Amount, Mandatory Terrorist Check |
 
-1. **Clone the repository**
-```bash
-git clone https://github.com/yourusername/credit-risk-api.git
-cd credit-risk-api
-```
+---
 
-2. **Start infrastructure services**
+## 📦 Installation & Setup
+
+### 1. Start Infrastructure
+
+Requires Docker and Docker Compose:
+
 ```bash
 docker-compose up -d
 ```
 
-3. **Initialize database schema**
-```bash
-psql postgres://app:app@localhost:5432/creditrisk < schema.sql
-```
+### 2. Configuration
 
-4. **Run the application**
-```bash
-go run .
-```
+The application is configured via environment variables. Create a `.env` file:
 
-The API will be available at `http://localhost:8080`
-
-## 🔧 Configuration
-
-Environment variables:
-
-```bash
-DATABASE_URL=postgres://app:app@localhost:5432/creditrisk?sslmode=disable
-HTTP_TIMEOUT_MS=1000
-CREDIT_HISTORY_URL=http://localhost:8080/mock/credit-history
-TERRORIST_LIST_URL=http://localhost:8080/mock/terrorist/list
-BANKRUPTCY_URL=http://localhost:8080/mock/bankruptcy
+```env
+PORT=8080
+DATABASE_URL=host=localhost port=5432 user=app password=app dbname=creditrisk sslmode=disable
+REDIS_URL=localhost:6379
 KAFKA_BROKERS=localhost:9092
-KAFKA_TOPIC=credit-applications
+KAFKA_TOPIC=application_topic
+USE_REDIS=true
 ```
 
-## 📡 API Endpoints
+### 3. Run Application
 
-### Create Application
-
-```http
-POST /applications
-Content-Type: application/json
-
-{
-  "name": "Ivanov Ivan Ivanovich",
-  "birthdate": "1990-05-15",
-  "phone": "+79161234567",
-  "passport": "1234 567890",
-  "residency": "resident",
-  "first_time": true,
-  "requested_amount": 50000
-}
+```bash
+make run
 ```
 
-**Response:**
+---
+
+## 🧪 Quality Assurance
+- **Linter**: `golangci-lint` (standard production settings)
+- **Unit Testing**: Comprehensive tests for handlers and validation logic
+
+```bash
+make test
+```
+
+- **Graceful Shutdown**: Orchestrated termination that flushes Kafka buffers and waits for active HTTP requests before exiting
+
+---
+
+## 📡 API Usage Example
+
+### Submit an Application
+
+```bash
+curl -X POST http://localhost:8080/applications \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ivanov Ivan Ivanovich",
+    "birthdate": "1995-01-01",
+    "phone": "+79991234567",
+    "passport": "1234 567890",
+    "residency": "resident",
+    "first_time": true,
+    "requested_amount": 50000
+  }'
+```
+
+### Response Example
+
 ```json
 {
   "application_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -164,48 +183,96 @@ Content-Type: application/json
       "check": "valid_phone",
       "status": "passed",
       "reason": ""
+    },
+    {
+      "check": "terrorist",
+      "status": "passed",
+      "reason": ""
     }
   ]
 }
 ```
 
-### Get Application
+### Get Application by ID
 
-```http
-GET /applications/{id}
-```
-
-**Response:**
-```json
-{
-  "application_id": "550e8400-e29b-41d4-a716-446655440000",
-  "created_at": "2024-02-04T10:30:00Z",
-  "strategy": "resident_first_time",
-  "status": "approved",
-  "payload": { },
-  "checks": [  ]
-}
-```
-
-## 🧪 Testing
-
-### Test application submission
 ```bash
-curl -X POST http://localhost:8080/applications \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Test User Testovich",
-    "birthdate": "1995-01-01",
-    "phone": "+79161234567",
-    "passport": "1234 567890",
-    "residency": "resident",
-    "first_time": true,
-    "requested_amount": 75000
-  }'
+curl http://localhost:8080/applications/550e8400-e29b-41d4-a716-446655440000
 ```
 
-## 👨‍💻 Author
-**cassame**
-- GitHub: [@cassame](https://github.com/cassame)
-- LinkedIn: [cassame](https://linkedin.com/in/cassame)
+---
 
+## 🛠️ Technology Stack
+
+| Component | Technology |
+|-----------|-----------|
+| **Language** | Go 1.21+ |
+| **HTTP Server** | net/http (stdlib) |
+| **Database** | PostgreSQL 16 + pgx driver |
+| **Cache** | Redis 7+ |
+| **Message Queue** | Apache Kafka (KRaft mode) |
+| **Concurrency** | golang.org/x/sync/errgroup |
+| **Testing** | Go testing + testify |
+
+---
+
+## 📊 Database Schema
+
+### Tables
+
+- `application_statuses` — Enumeration of valid application statuses
+- `check_statuses` — Enumeration of valid check statuses
+- `applications` — Loan application records with JSONB payload
+- `check_results` — Individual validation check results
+
+### Indexes
+
+- `idx_applications_status` — Fast filtering by application status
+- `idx_check_results_application_id` — Efficient joins for retrieving all checks
+
+---
+
+## 🔐 Security & Best Practices
+
+- ✅ **Prepared Statements** — SQL injection prevention
+- ✅ **Input Validation** — Strict format checks for all fields
+- ✅ **Timeout Controls** — All external HTTP calls have timeouts
+- ✅ **Transaction Isolation** — ACID guarantees for data consistency
+- ✅ **CHECK Constraints** — Database-level validation for critical fields
+
+---
+
+## 📈 Performance Optimizations
+
+- **Parallel Check Execution** — Validation checks run concurrently using errgroup
+- **Connection Pooling** — PostgreSQL connection pool for efficient database access
+- **Redis Caching** — Terrorist watchlist cached with atomic updates
+- **HTTP Client Timeouts** — Prevents hanging requests to external services
+
+---
+
+## 🚀 Future Improvements
+
+- [ ] Add distributed tracing (OpenTelemetry)
+- [ ] Implement circuit breaker for external services
+- [ ] Add Prometheus metrics
+- [ ] Implement rate limiting
+- [ ] Add API authentication & authorization
+- [ ] Structured logging (zerolog/zap)
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License.
+
+---
+
+<div align="center">
+
+**Developed by [cassame](https://github.com/cassame)**
+
+*Professional Credit Risk Assessment MVP*
+
+⭐ Star this repository if you find it helpful!
+
+</div>

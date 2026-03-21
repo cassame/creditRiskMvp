@@ -15,18 +15,21 @@ import (
 )
 
 type ApplicationHandler struct {
-	Repo     domain.Repository
-	Cfg      config.Config
-	Queue    services.MessageQueue
-	Notifier notifier.Notifier
+	Repo           domain.Repository
+	Cfg            config.Config
+	Queue          services.MessageQueue
+	Notifier       notifier.Notifier
+	TerroristStore domain.TerroristStore
 }
 
-func NewApplicationsHandler(cfg config.Config, repo domain.Repository, queue services.MessageQueue, n notifier.Notifier) *ApplicationHandler {
+func NewApplicationsHandler(cfg config.Config, repo domain.Repository,
+	queue services.MessageQueue, n notifier.Notifier, terrStore domain.TerroristStore) *ApplicationHandler {
 	return &ApplicationHandler{
-		Repo:     repo,
-		Cfg:      cfg,
-		Queue:    queue,
-		Notifier: n,
+		Repo:           repo,
+		Cfg:            cfg,
+		Queue:          queue,
+		Notifier:       n,
+		TerroristStore: terrStore,
 	}
 }
 
@@ -53,7 +56,7 @@ func (h *ApplicationHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.logAndWriteError(w, "validation failed", http.StatusBadRequest, err)
 		return
 	}
-	strategy := internal.ChooseStrategy(app)
+	strategy := internal.ChooseStrategy(app, h.TerroristStore)
 	app.StrategyName = strategy.Name
 	app.Checks, err = internal.RunStrategy(ctx, h.Cfg, app, strategy)
 	if err != nil {
