@@ -1,11 +1,14 @@
 # Go build artifacts
 /bin/
+vendor/
 /obj/
 *.exe
 *.exe~
 *.dll
 *.so
+*.out
 *.dylib
+.env
 
 # Dependency directories
 /vendor/
