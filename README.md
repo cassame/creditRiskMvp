@@ -113,6 +113,8 @@ Requires Docker and Docker Compose:
 
 ```bash
 docker-compose up -d
+OR
+docker-compose up --build
 ```
 
 ### 2. Configuration
@@ -203,15 +205,15 @@ curl http://localhost:8080/applications/550e8400-e29b-41d4-a716-446655440000
 
 ## 🛠️ Technology Stack
 
-| Component | Technology |
-|-----------|-----------|
-| **Language** | Go 1.21+ |
-| **HTTP Server** | net/http (stdlib) |
+| Component | Technology                 |
+|-----------|----------------------------|
+| **Language** | Go 1.25+                   |
+| **HTTP Server** | net/http (stdlib)          |
 | **Database** | PostgreSQL 16 + pgx driver |
-| **Cache** | Redis 7+ |
-| **Message Queue** | Apache Kafka (KRaft mode) |
+| **Cache** | Redis 7+                   |
+| **Message Queue** | Apache Kafka (KRaft mode)  |
 | **Concurrency** | golang.org/x/sync/errgroup |
-| **Testing** | Go testing + testify |
+| **Testing** | Go testing + testify       |
 
 ---
 
