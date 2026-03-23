@@ -1,6 +1,6 @@
 package main
 
-// TODO: for eugene review
+// TODO: for eugene revieww
 import (
 	"context"
 	"credit-risk-mvp/internal/config"
